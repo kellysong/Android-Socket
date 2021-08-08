@@ -10,7 +10,8 @@ package com.sjl.socket.business;
  * @copyright(C) 2021 song
  */
 public class FileInfo {
-    public String desc ="这是一个apk";
+    public String msg;
+    public String desc = "这是一个apk：" + System.currentTimeMillis();
 
     @Override
     public String toString() {

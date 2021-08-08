@@ -33,7 +33,8 @@ public class SimpleClient extends BaseSocket{
     public String ip;
     public int port;
     private Timer timer;
-
+    protected Object obj = new Object();
+    private static final int HEART_TIME = 10*1000;
 
     private DataResponseListener dataResponseListener;
 
@@ -73,7 +74,7 @@ public class SimpleClient extends BaseSocket{
                     }
                 }
             }
-        }, 1000, 8 * 1000);
+        }, 1000, HEART_TIME);
     }
 
     private void stopHeart() {
@@ -101,7 +102,7 @@ public class SimpleClient extends BaseSocket{
     public void disconnect() {
         running = false;
         stopHeart();
-        if (socket != null) {
+        if (socket != null && !socket.isClosed()) {
             try {
                 socket.close();
             } catch (IOException e) {
@@ -113,6 +114,12 @@ public class SimpleClient extends BaseSocket{
         }
     }
 
+    public boolean isConnected() {
+        if (socket != null && !socket.isConnected() && !socket.isClosed()) {
+            return true;
+        }
+        return false;
+    }
     public interface ClientListener {
         void onStarted();
 
@@ -144,7 +151,7 @@ public class SimpleClient extends BaseSocket{
                 parseDataPacket(socket);
             } catch (Exception e) {
                 e.printStackTrace();
-                System.out.println("客户端异常：" + e.getMessage());
+                System.out.println("客户端IO异常：" + e.getMessage());
                 if (clientListener != null) {
                     clientListener.onException(e);
                 }
@@ -262,9 +269,6 @@ public class SimpleClient extends BaseSocket{
         return null;
     }
 
-    private static DataRes getDataRes() {
-        return dataRes;
-    }
 
     public void subscribeDataResponseListener(DataResponseListener dataResponseListener) {
         this.dataResponseListener = dataResponseListener;
@@ -274,19 +278,26 @@ public class SimpleClient extends BaseSocket{
         if (dataResponseListener == null) {
             return;
         }
-        if (responsePacket.dataType == DataType.HEART.getDataType()) {
-            dataResponseListener.heartBeatPacket(responsePacket);
-        } else {
-            dataResponseListener.dataPacket(requestPacket.cmd, requestPacket, responsePacket);
+        try {
+            if (responsePacket.dataType == DataType.HEART.getDataType()) {
+                dataResponseListener.heartBeatPacket(responsePacket);
+            } else {
+                dataResponseListener.dataPacket(requestPacket.cmd, requestPacket, responsePacket);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
 
     public void sendData(DataReq dataReq) throws Exception {
+        if (dataReq == null) {
+            throw new NullPointerException("dataReq为空");
+        }
         synchronized (obj) {
             DataType dataType = dataReq.geDataType();
             if (out == null) {
-                System.out.println("客户端未连接");
+                System.out.println("未连接服务端");
                 return;
             }
             if (dataType == DataType.TEXT_ONLY) {
@@ -297,6 +308,7 @@ public class SimpleClient extends BaseSocket{
                 sendHeartData(out, DataType.HEART.getDataType(), dataReq);
             } else {
                 System.out.println("不支持命令：" + dataType);
+                throw new IllegalArgumentException("非法数据包发送");
             }
         }
 

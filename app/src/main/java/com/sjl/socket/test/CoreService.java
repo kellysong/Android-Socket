@@ -7,13 +7,13 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.telephony.mbms.FileInfo;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.sjl.socket.SimpleServer;
 import com.sjl.socket.base.DataPacket;
 import com.sjl.socket.base.DataResponseListener;
+import com.sjl.socket.business.FileInfo;
 import com.sjl.socket.business.ResultRes;
 import com.sjl.socket.business.SampleCmd;
 import com.sjl.socket.test.util.Logger;
@@ -21,6 +21,8 @@ import com.sjl.socket.test.util.NetUtils;
 
 import java.io.File;
 import java.lang.reflect.Type;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import androidx.annotation.Nullable;
 
@@ -31,25 +33,51 @@ public class CoreService extends Service {
 
     private SimpleServer simpleServer;
     private Handler handler = new Handler(Looper.getMainLooper());
+    public static final int PORT = 8090;
+    static ExecutorService executorService = Executors.newCachedThreadPool();
 
     @Override
     public void onCreate() {
-        simpleServer = new SimpleServer(8090);
+
+        simpleServer = new SimpleServer(PORT);
+
         simpleServer.setServerListener(new SimpleServer.ServerListener() {
             @Override
             public void onStarted() {
-                String hostAddress = NetUtils.getLocalIPAddress().getHostAddress();
-                ServerManager.onServerStart(CoreService.this, hostAddress);
+                //子线程
+                Logger.i("线程名称："+Thread.currentThread().getName());
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        String hostAddress = NetUtils.getLocalIPAddress().getHostAddress();
+                        ServerManager.onServerStart(CoreService.this, hostAddress);
+                    }
+                });
+
             }
 
             @Override
             public void onStopped() {
-                ServerManager.onServerStop(CoreService.this);
+                //子线程
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        ServerManager.onServerStop(CoreService.this);
+                    }
+                });
+
             }
 
             @Override
             public void onException(Exception e) {
-                ServerManager.onServerError(CoreService.this, e.getMessage());
+                //子线程
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        ServerManager.onServerError(CoreService.this, e.getMessage());
+                    }
+                });
+
             }
         });
 
@@ -59,11 +87,12 @@ public class CoreService extends Service {
         simpleServer.subscribeDataResponseListener(new DataResponseListener() {
             @Override
             public void heartBeatPacket(DataPacket dataPacket) {
-
+                //子线程
             }
 
             @Override
             public void dataPacket(int cmd, DataPacket requestPacket, DataPacket responsePacket) {
+                //子线程
                 SampleCmd sampleCmd = SampleCmd.fromValue(cmd);
                 if (sampleCmd == null) {
                     return;
@@ -85,6 +114,11 @@ public class CoreService extends Service {
                 }*/
             }
         });
+
+        //定向客户端推送数据
+//        simpleServer.pushDataTpClient("","");
+        //往所有有客户端推送数据
+//        simpleServer.pushDataTpAllClient();
     }
 
     @Override
@@ -97,6 +131,9 @@ public class CoreService extends Service {
     public void onDestroy() {
         stopServer();
         super.onDestroy();
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
+        }
     }
 
     /**
@@ -115,7 +152,13 @@ public class CoreService extends Service {
      * Stop server.
      */
     private void stopServer() {
-        simpleServer.shutdown();
+        executorService.execute(new Runnable() {
+            @Override
+            public void run() {
+                simpleServer.shutdown();
+            }
+        });
+
     }
 
     @Nullable

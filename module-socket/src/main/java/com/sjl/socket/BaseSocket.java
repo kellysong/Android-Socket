@@ -20,9 +20,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public  class BaseSocket {
 
     protected boolean running;
-    static Gson gson = new Gson();
-    protected static DataRes dataRes = new DataRes();
-    protected Object obj = new Object();
+    protected  static Gson gson = new Gson();
+    private static DataRes dataRes = new DataRes();
     protected Map<Integer, DataPacket> msgList = new ConcurrentHashMap<>();
     protected File fileSaveDir;
 
@@ -47,4 +46,9 @@ public  class BaseSocket {
             this.fileSaveDir = dir;
         }
     }
+
+    public static DataRes getDataRes() {
+        return dataRes;
+    }
+
 }

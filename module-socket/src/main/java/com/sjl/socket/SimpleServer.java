@@ -14,8 +14,11 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * java.net.SocketException: Connection reset 引起这个异常的原因有两个：
@@ -29,17 +32,18 @@ import java.net.Socket;
  * @time 2021/8/4 11:40
  * @copyright(C) 2021 song
  */
-public class SimpleServer extends BaseSocket{
+public class SimpleServer extends BaseSocket {
     private int port;
     private ServerSocket serverSocket = null;
     private Thread serverReceiverThread;
     private ServerListener serverListener;
+    protected Map<String, ServerClient> clientConnectionList = new ConcurrentHashMap<>();
+
 
     public SimpleServer(int port) {
         this.port = port;
-        REQUEST_FLAG =  DataPacket.SERVER_REQUEST;
+        REQUEST_FLAG = DataPacket.SERVER_REQUEST;
     }
-
 
 
     public void startup() {
@@ -51,7 +55,13 @@ public class SimpleServer extends BaseSocket{
 
     public void shutdown() {
         running = false;
-        if (serverSocket != null) {
+        for (Map.Entry<String, ServerClient> entry : clientConnectionList.entrySet()) {
+            String key = entry.getKey();
+            ServerClient serverClient = entry.getValue();
+            serverClient.disconnect();
+            System.out.println("断开-->" + key + "连接");
+        }
+        if (serverSocket != null && !serverSocket.isClosed()) {
             try {
                 serverSocket.close();
             } catch (IOException e) {
@@ -63,9 +73,48 @@ public class SimpleServer extends BaseSocket{
         }
     }
 
+    private Map<String, ServerClient> getClientConnectionList() {
+        return clientConnectionList;
+    }
+
+    private ServerClient getClientConnection(String clientIp) {
+        return clientConnectionList.get(clientIp);
+    }
 
     public void setServerListener(ServerListener serverListener) {
         this.serverListener = serverListener;
+    }
+
+
+    public boolean pushDataTpClient(String clientIp,DataReq dataReq) {
+        SimpleServer.ServerClient clientConnectionList = getClientConnection(clientIp);
+        if(clientConnectionList != null){
+            try {
+                clientConnectionList.sendData(dataReq);
+                return true;
+            } catch (Exception e) {
+                e.printStackTrace();
+                System.out.println("推送-->" + clientIp + "失败：" + e.getMessage());
+            }
+        }
+        return false;
+
+    }
+    public void pushDataTpAllClient(DataReq dataReq) {
+        Map<String, ServerClient> clientConnectionList = getClientConnectionList();
+        for (Map.Entry<String, ServerClient> entry : clientConnectionList.entrySet()) {
+            String key = entry.getKey();
+            ServerClient serverClient = entry.getValue();
+            if (serverClient.isConnected()) {
+                try {
+                    serverClient.sendData(dataReq);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    System.out.println("推送-->" + key + "失败：" + e.getMessage());
+                }
+            }
+
+        }
     }
 
     public interface ServerListener {
@@ -91,14 +140,30 @@ public class SimpleServer extends BaseSocket{
                     serverListener.onStarted();
                 }
                 while (true) {
-                    Socket socket = serverSocket.accept();
-                    System.out.println("client is connected");
-                    System.out.println(socket.getLocalSocketAddress());
-                    Thread clientThread = new Thread(new ClientConnectThread(socket));
-                    clientThread.start();
+                    if (!serverSocket.isClosed()) {
+                        Socket socket = serverSocket.accept();
+                        System.out.println("client is connected");
+                        InetAddress inetAddress = socket.getInetAddress();
+                        String ip = inetAddress.getHostAddress();
+                        //inet address: /127.0.0.1
+                        System.out.println("inet address: " + inetAddress.toString());
+                        ip = ip.substring(1);
+
+                        ServerClient oldServerClient = getClientConnection(ip);
+                        if (oldServerClient != null && oldServerClient.isConnected()) {
+                            oldServerClient.disconnect();
+                        }
+                        ServerClient serverClient = new ServerClient(socket);
+                        Thread clientThread = new Thread(serverClient);
+                        clientThread.start();
+                        //同一个客户端ip,只保留一个最新的长连接
+                        clientConnectionList.put(ip, serverClient);
+
+                    }
+
                 }
             } catch (Exception e) {
-                System.out.println("服务端异常:" + e.getMessage());
+                System.out.println("服务端监听异常:" + e.getMessage());
                 running = false;
                 if (serverListener != null) {
                     serverListener.onException(e);
@@ -107,12 +172,15 @@ public class SimpleServer extends BaseSocket{
         }
     }
 
-    private class ClientConnectThread implements Runnable {
+    /**
+     * ServerClient即客户端连接服务端的Client
+     */
+    public class ServerClient implements Runnable {
         private Socket socket;
         private DataOutputStream out;
         private Object obj = new Object();
 
-        public ClientConnectThread(Socket socket) {
+        public ServerClient(Socket socket) {
             this.socket = socket;
         }
 
@@ -125,17 +193,31 @@ public class SimpleServer extends BaseSocket{
             } catch (Exception e) {
                 System.out.println("客服端连接服务端中断:" + e.getMessage());
             } finally {
-                if (socket != null) {
-                    try {
-                        socket.close();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
+                disconnect();
+            }
+        }
+
+        public void disconnect() {
+            if (socket != null && !socket.isClosed()) {
+                try {
+                    socket.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
             }
         }
 
+        public boolean isConnected() {
+            if (socket != null && socket.isConnected() && !socket.isClosed()) {
+                return true;
+            }
+            return false;
+        }
+
         public void sendData(DataReq dataReq) throws Exception {
+            if (dataReq == null) {
+                throw new NullPointerException("dataReq为空");
+            }
             synchronized (obj) {
                 DataType dataType = dataReq.geDataType();
                 if (out == null) {
@@ -150,6 +232,7 @@ public class SimpleServer extends BaseSocket{
                     sendHeartData(out, DataType.HEART.getDataType(), dataReq);
                 } else {
                     System.out.println("不支持命令：" + dataType);
+                    throw new IllegalArgumentException("非法数据包发送");
                 }
             }
 
@@ -305,18 +388,19 @@ public class SimpleServer extends BaseSocket{
             if (dataResponseListener == null) {
                 return;
             }
-            if (responsePacket.dataType == DataType.HEART.getDataType()) {
-                dataResponseListener.heartBeatPacket(responsePacket);
-            } else {
-                dataResponseListener.dataPacket(requestPacket.cmd, requestPacket, responsePacket);
+            try {
+                if (responsePacket.dataType == DataType.HEART.getDataType()) {
+                    dataResponseListener.heartBeatPacket(responsePacket);
+                } else {
+                    dataResponseListener.dataPacket(requestPacket.cmd, requestPacket, responsePacket);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
 
         }
     }
 
-    private static DataRes getDataRes() {
-        return dataRes;
-    }
 
     private DataResponseListener dataResponseListener;
 

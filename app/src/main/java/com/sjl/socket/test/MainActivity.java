@@ -93,7 +93,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
         if (!TextUtils.isEmpty(ip)) {
             List<String> addressList = new LinkedList<>();
-            mRootUrl = ip + ":8090";
+            mRootUrl = ip + ":" + CoreService.PORT;
             addressList.add("当前连接WLAN:" + NetUtils.getConnectWifiSsid(this));
             addressList.add(mRootUrl);
             mTvMessage.setText(TextUtils.join("\n", addressList));
@@ -126,7 +126,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mTvMessage.setText(R.string.server_stop_succeed);
     }
 
-    private void showDialog() {
+    private synchronized void showDialog() {
         if (mDialog == null) mDialog = new LoadingDialog(this);
         if (!mDialog.isShowing()) mDialog.show();
     }
