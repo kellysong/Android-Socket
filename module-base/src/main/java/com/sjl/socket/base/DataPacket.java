@@ -32,7 +32,6 @@ import java.io.InputStream;
  */
 public class DataPacket {
     public static final String ENCODE = "UTF-8";
-    static volatile int currentSeq = 0;
 
     public static final byte CLIENT_REQUEST = 0x00;
     public static final byte SERVER_REQUEST = 0x01;
@@ -98,14 +97,6 @@ public class DataPacket {
      */
     public byte end;
 
-    private int nextSeq() {
-        currentSeq++;
-        if (currentSeq == Integer.MAX_VALUE) {
-            currentSeq = 1;
-        }
-        return currentSeq;
-    }
-
     /**
      * 报文结束符
      */
@@ -114,50 +105,36 @@ public class DataPacket {
     public DataPacket() {
     }
 
-    public DataPacket(byte dataType, byte flag, int cmd) {
+    public DataPacket(byte dataType, byte flag, int cmd, int seq) {
         this.dataType = dataType;
         this.flag = flag;
         this.cmd = cmd;
-        this.seq = nextSeq();
-    }
-
-    public DataPacket(byte dataType, byte flag, int cmd, int textLength, byte[] textData) {
-        this.dataType = dataType;
-        this.flag = flag;
-        this.cmd = cmd;
-        this.textLength = textLength;
-        this.textData = textData;
-        this.seq = nextSeq();
-    }
-
-    /**
-     * 应答专用
-     *
-     * @param dataType
-     * @param flag
-     * @param cmd
-     * @param textLength
-     * @param textData
-     * @param seq
-     */
-    public DataPacket(byte dataType, byte flag, int cmd, int textLength, byte[] textData, int seq) {
-        this.dataType = dataType;
-        this.flag = flag;
-        this.cmd = cmd;
-        this.textLength = textLength;
-        this.textData = textData;
         this.seq = seq;
     }
 
-    public DataPacket(byte dataType, byte flag, int cmd, int textLength, byte[] textData, long fileLength, File file) {
+    public DataPacket(byte dataType, byte flag, int cmd, int seq, byte[] textData) {
         this.dataType = dataType;
         this.flag = flag;
         this.cmd = cmd;
-        this.textLength = textLength;
+        this.seq = seq;
+        this.textLength = textData.length;
         this.textData = textData;
-        this.fileLength = fileLength;
+
+    }
+
+
+    public DataPacket(byte dataType, byte flag, int cmd, int seq, byte[] textData, byte[] fileNameData, File file) {
+        this.dataType = dataType;
+        this.flag = flag;
+        this.cmd = cmd;
+        this.seq = seq;
+        this.textLength = textData.length;
+        this.textData = textData;
+        this.fileNameLength = fileNameData.length;
+        this.fileNameData = fileNameData;
+        this.fileLength = file.length();
         this.file = file;
-        this.seq = nextSeq();
+
     }
 
 
@@ -199,10 +176,8 @@ public class DataPacket {
             //文件分隔符和文本数据
             out.writeByte(DataPacket.Spilt);//占用1个字节
             //发送文件名
-            String name = file.getName();
-            byte[] fileNameByte = name.getBytes(ENCODE);
-            out.writeInt(fileNameByte.length);
-            out.write(fileNameByte);
+            out.writeInt(fileNameLength);
+            out.write(fileNameData);
             //发送文件
             out.writeByte(DataPacket.Spilt);//占用1个字节
             out.writeLong(fileLength);//文件的长度，占用8个字节
@@ -288,7 +263,7 @@ public class DataPacket {
         }
         //解析文件数据
         long fileLength = inputStream.readLong();
-        System.out.println("fileLength:" + fileLength);
+        ConsoleUtils.i("fileLength:" + fileLength);
 
         String fileName = new String(fileNameData);
         File file = new File(dir, fileName);
@@ -313,14 +288,14 @@ public class DataPacket {
             if (surplus >= buffer.length) {
                 surplus = buffer.length;
             }
-            System.out.println("readLength:" + readLength);
+            ConsoleUtils.i("readLength:" + readLength);
             if (readLength == fileLength) {
-                System.out.println("读取文件完毕");
+                ConsoleUtils.i("读取文件完毕");
                 break;
             }
         }
         os.close();
-        System.out.println("文件读取耗时：" + (System.currentTimeMillis() - start) / 1000.0 + "s");
+        ConsoleUtils.i("文件读取耗时：" + (System.currentTimeMillis() - start) / 1000.0 + "s");
         byte end = inputStream.readByte();
 
         this.dataType = dataType;
@@ -330,11 +305,11 @@ public class DataPacket {
         this.textLength = textLength;
         this.textData = data;
         this.fileNameLength = fileNameLength;
-   /*     this.fileNameData = fileNameData;
-        this.fileLength = fileLength;*/
+        this.fileNameData = fileNameData;
+        this.fileLength = fileLength;
         this.file = file;
-
         this.end = end;
+        ConsoleUtils.i("发送文件成功：" + fileName);
     }
 
     @Override

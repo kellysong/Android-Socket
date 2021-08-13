@@ -28,4 +28,9 @@ public class TextReq extends DataReq {
     public int getCmd() {
         return SampleCmd.NORMAL_TEXT.getValue();
     }
+
+    @Override
+    public int getSeq() {
+        return SeqUtils.nextSeq();
+    }
 }

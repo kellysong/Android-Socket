@@ -11,12 +11,12 @@ import android.os.Looper;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.sjl.socket.SimpleServer;
+import com.sjl.socket.base.ConsoleUtils;
 import com.sjl.socket.base.DataPacket;
 import com.sjl.socket.base.DataResponseListener;
 import com.sjl.socket.business.FileInfo;
 import com.sjl.socket.business.ResultRes;
 import com.sjl.socket.business.SampleCmd;
-import com.sjl.socket.test.util.Logger;
 import com.sjl.socket.test.util.NetUtils;
 
 import java.io.File;
@@ -38,14 +38,13 @@ public class CoreService extends Service {
 
     @Override
     public void onCreate() {
-
+        ConsoleUtils.e("创建服务");
         simpleServer = new SimpleServer(PORT);
-
         simpleServer.setServerListener(new SimpleServer.ServerListener() {
             @Override
             public void onStarted() {
                 //子线程
-                Logger.i("线程名称："+Thread.currentThread().getName());
+                ConsoleUtils.i("线程名称：" + Thread.currentThread().getName());
                 handler.post(new Runnable() {
                     @Override
                     public void run() {
@@ -86,24 +85,19 @@ public class CoreService extends Service {
         //数据监听
         simpleServer.subscribeDataResponseListener(new DataResponseListener() {
             @Override
-            public void heartBeatPacket(DataPacket dataPacket) {
-                //子线程
-            }
-
-            @Override
-            public void dataPacket(int cmd, DataPacket requestPacket, DataPacket responsePacket) {
+            public void sendOnSuccess(int cmd, DataPacket requestPacket, DataPacket responsePacket) {
                 //子线程
                 SampleCmd sampleCmd = SampleCmd.fromValue(cmd);
                 if (sampleCmd == null) {
                     return;
                 }
-                Logger.i("服务端监听客服端:cmd: " + cmd + " ,requestPacket: " + requestPacket + " responsePacket: " + responsePacket);
+                ConsoleUtils.i("服务端监听客服端:cmd: " + cmd + " ,requestPacket: " + requestPacket + " responsePacket: " + responsePacket);
 
                 String msg = new String(responsePacket.textData);
                 Type type = new TypeToken<ResultRes<FileInfo>>() {
                 }.getType();
+                //解析出数据，处理业务逻辑
                 ResultRes<FileInfo> dataRes = new Gson().fromJson(msg, type);
-                Logger.i("收到数据:" + dataRes);
                 /*switch (sampleCmd) {
                     case NORMAL_TEXT:
                         break;
@@ -113,6 +107,12 @@ public class CoreService extends Service {
                         break;
                 }*/
             }
+
+            @Override
+            public void sendOnError(int cmd, Throwable t) {
+                ConsoleUtils.e("接收客户端信息异常:" + cmd, t);
+            }
+
         });
 
         //定向客户端推送数据

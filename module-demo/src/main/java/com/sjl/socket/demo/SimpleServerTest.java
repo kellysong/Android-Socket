@@ -3,6 +3,7 @@ package com.sjl.socket.demo;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.sjl.socket.SimpleServer;
+import com.sjl.socket.base.ConsoleUtils;
 import com.sjl.socket.base.DataPacket;
 import com.sjl.socket.base.DataReq;
 import com.sjl.socket.base.DataResponseListener;
@@ -10,8 +11,10 @@ import com.sjl.socket.business.FileInfo;
 import com.sjl.socket.business.ResultRes;
 import com.sjl.socket.business.SampleCmd;
 import com.sjl.socket.business.TextReq;
-import com.sjl.socket.util.FileUtils;
 
+import java.awt.Toolkit;
+import java.awt.event.WindowEvent;
+import java.awt.event.WindowListener;
 import java.io.File;
 import java.lang.reflect.Type;
 import java.text.SimpleDateFormat;
@@ -44,15 +47,23 @@ public class SimpleServerTest {
             public void run() {
                 SocketFrame frame = new SocketFrame("Socket测试");
                 frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-                frame.setLocationRelativeTo(null);//窗口居中
-                frame.setSize(1280, 720);
+                Toolkit toolkit = Toolkit.getDefaultToolkit();
+                // 得到显示器屏幕的宽高
+                int width = toolkit.getScreenSize().width;
+                int height = toolkit.getScreenSize().height;
+                // 定义窗体的宽高
+                int windowsW = 1280;
+                int windowsH = 720;
+                // 设置窗体位置和大小
+                frame.setBounds((width - windowsW) / 2,
+                        (height - windowsH) / 2, windowsW, windowsH);
+
                 //显示窗口
                 frame.setVisible(true);
                 serverLogArea = frame.serverLogArea;
                 clientLogArea = frame.clientLogArea;
 
                 final JButton btnStart = frame.btnStart;
-                final JButton btnStop = frame.btnStop;
                 final JTextField textField = frame.textField;
                 final JTextField textField2 = frame.textField2;
                 final JTextField textField3 = frame.textField3;
@@ -93,7 +104,20 @@ public class SimpleServerTest {
                         FileInfo fileInfo = new FileInfo();
                         fileInfo.msg = msg;
                         DataReq dataReq = new TextReq(fileInfo);
-                        simpleServer.pushDataTpAllClient(dataReq);
+//                        simpleServer.pushDataTpAllClient(dataReq);
+                        //异步推送
+                        simpleServer.pushDataTpClient(SimpleClientTest.ip, dataReq, new DataResponseListener() {
+                            @Override
+                            public void sendOnSuccess(int cmd, DataPacket requestPacket, DataPacket responsePacket) {
+                                ConsoleUtils.i("推送消息成功,cmd: " + cmd + " ,requestPacket: " + requestPacket + " responsePacket: " + responsePacket);
+                                showServerMsg(requestPacket.toString());
+                            }
+
+                            @Override
+                            public void sendOnError(int cmd, Throwable t) {
+                                showServerMsg(t.getMessage());
+                            }
+                        });
                     }
 
                     @Override
@@ -106,7 +130,46 @@ public class SimpleServerTest {
                         FileInfo fileInfo = new FileInfo();
                         fileInfo.msg = msg;
                         DataReq dataReq = new TextReq(fileInfo);
-                        SimpleClientTest.sendDataWithThread(dataReq);
+                        SimpleClientTest.sendData(dataReq);
+                    }
+                });
+                frame.addWindowListener(new WindowListener() {
+                    @Override
+                    public void windowOpened(WindowEvent e) {
+
+                    }
+
+                    @Override
+                    public void windowClosing(WindowEvent e) {
+
+                        SimpleClientTest.disconnect();
+                        if (simpleServer != null) {
+                            simpleServer.shutdown();
+                        }
+                    }
+
+                    @Override
+                    public void windowClosed(WindowEvent e) {
+
+                    }
+
+                    @Override
+                    public void windowIconified(WindowEvent e) {
+                    }
+
+                    @Override
+                    public void windowDeiconified(WindowEvent e) {
+
+                    }
+
+                    @Override
+                    public void windowActivated(WindowEvent e) {
+
+                    }
+
+                    @Override
+                    public void windowDeactivated(WindowEvent e) {
+
                     }
                 });
             }
@@ -135,28 +198,24 @@ public class SimpleServerTest {
 
             }
         });
-        File dir = new File(FileUtils.currentWorkDir + File.separator + "apk" + File.separator + "fileTemp");
+        //服务端保存目录
+        File dir = new File(SimpleClientTest.getApkDir(), "apk" + File.separator + "download");
         simpleServer.setFileSaveDir(dir.getAbsolutePath());
-        //数据监听
+        //订阅客户端的请求信息
         simpleServer.subscribeDataResponseListener(new DataResponseListener() {
             @Override
-            public void heartBeatPacket(DataPacket dataPacket) {
-                //子线程
-            }
-
-            @Override
-            public void dataPacket(int cmd, DataPacket requestPacket, DataPacket responsePacket) {
+            public void sendOnSuccess(int cmd, DataPacket requestPacket, DataPacket responsePacket) {
                 //子线程
                 SampleCmd sampleCmd = SampleCmd.fromValue(cmd);
                 if (sampleCmd == null) {
                     return;
                 }
-                System.out.println("服务端监听客服端:cmd: " + cmd + " ,requestPacket: " + requestPacket + " responsePacket: " + responsePacket);
+                ConsoleUtils.i("服务端监听客服端:cmd: " + cmd + " ,requestPacket: " + requestPacket + " responsePacket: " + responsePacket);
                 String msg = new String(responsePacket.textData);
                 Type type = new TypeToken<ResultRes<FileInfo>>() {
                 }.getType();
+                //解析出数据，处理业务逻辑
                 ResultRes<FileInfo> dataRes = new Gson().fromJson(msg, type);
-                System.out.println("收到数据:" + dataRes);
                 switch (sampleCmd) {
                     case NORMAL_TEXT:
                         break;
@@ -165,10 +224,14 @@ public class SimpleServerTest {
                     default:
                         break;
                 }
-                if (responsePacket.flag == DataPacket.CLIENT_REQUEST){//客户端端的请求信息
-                    showServerMsg(requestPacket.toString());
-                }
+                showServerMsg(requestPacket.toString());
             }
+
+            @Override
+            public void sendOnError(int cmd, Throwable t) {
+                ConsoleUtils.e("接收客户端信息异常:" + cmd, t);
+            }
+
         });
 
         //定向客户端推送数据

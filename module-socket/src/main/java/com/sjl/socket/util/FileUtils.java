@@ -6,7 +6,7 @@ import java.text.DecimalFormat;
 public class FileUtils {
 
     /**
-     * 当前目录路径
+     * 当前目录路径,获取当前工程路径
      */
     public static String currentWorkDir = System.getProperty("user.dir") + File.separator;
 

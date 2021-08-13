@@ -7,8 +7,6 @@ import com.sjl.socket.base.DataType;
 import java.io.File;
 
 /**
- *
- *
  * @author Kelly
  * @version 1.0.0
  * @filename FileReq
@@ -18,9 +16,8 @@ import java.io.File;
 public class FileReq extends DataReq {
 
 
-
-    public FileReq(Object data, File file) {
-        super(data, file);
+    public FileReq(Object data, File file, String fileName) {
+        super(data, file, fileName);
     }
 
     @Override
@@ -30,7 +27,7 @@ public class FileReq extends DataReq {
                 ", dataType='" + geDataType() + '\'' +
                 ", apkName='" + file.getName() + '\'' +
                 ", apkLength='" + file.length() + '\'' +
-                ", data='" + data+ '\'' +
+                ", data='" + data + '\'' +
                 '}';
     }
 
@@ -42,5 +39,10 @@ public class FileReq extends DataReq {
     @Override
     public int getCmd() {
         return SampleCmd.UPLOAD_APK.getValue();
+    }
+
+    @Override
+    public int getSeq() {
+        return SeqUtils.nextSeq();
     }
 }

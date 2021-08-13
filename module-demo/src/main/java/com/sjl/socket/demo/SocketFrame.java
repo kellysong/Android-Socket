@@ -7,6 +7,7 @@ import java.awt.GridLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
+import javax.swing.AbstractAction;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -33,6 +34,7 @@ public class SocketFrame extends JFrame {
     public JButton btnStart, btnStop;
     public JScrollPane jScrollPane, jScrollPane2;
     public JButton btnSend, btnSend2;
+    public JButton btnClear,btnClear2;
     public SocketFrame(String title) {
         super(title);
         initNorth();
@@ -80,6 +82,7 @@ public class SocketFrame extends JFrame {
         JPanel panel2 = new JPanel();
         textField2 = new JTextField(16);
         btnSend = new JButton("推送消息到客户端");
+        btnClear = new JButton("清空");
         btnSend.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent actionEvent) {
@@ -88,9 +91,17 @@ public class SocketFrame extends JFrame {
                 }
             }
         });
+        btnClear.addActionListener(new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent actionEvent) {
+                textField2.setText("");
+                serverLogArea.setText("");
+            }
+        });
         //添加控件
         panel2.add(textField2);
         panel2.add(btnSend);
+        panel2.add(btnClear);
 
         serverPanel.add(panel1);
         serverPanel.add(panel2);
@@ -107,13 +118,15 @@ public class SocketFrame extends JFrame {
         JButton btnConnect = new JButton("连接");
         textField3 = new JTextField(16);
         btnSend2 = new JButton("发送消息到服务端");
+        btnClear2 = new JButton("清空");
         panel3.add(btnConnect);
         panel4.add(textField3);
         panel4.add(btnSend2);
+        panel4.add(btnClear2);
         btnConnect.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent actionEvent) {
-                SimpleClientTest.connect();//请修改SimpleClientTest连接信息
+                SimpleClientTest.connect(3);//请修改SimpleClientTest连接信息
             }
         });
         btnSend2.addActionListener(new ActionListener() {
@@ -122,6 +135,13 @@ public class SocketFrame extends JFrame {
                 if (serverFrameListener != null) {
                     serverFrameListener.onClickClientSend();
                 }
+            }
+        });
+        btnClear2.addActionListener(new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent actionEvent) {
+                textField3.setText("");
+                clientLogArea.setText("");
             }
         });
         clientPanel.add(panel3);

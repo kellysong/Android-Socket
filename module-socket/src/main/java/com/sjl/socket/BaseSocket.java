@@ -1,12 +1,12 @@
 package com.sjl.socket;
 
 import com.google.gson.Gson;
-import com.sjl.socket.base.DataPacket;
 import com.sjl.socket.base.DataRes;
 
 import java.io.File;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * TODO
@@ -17,15 +17,19 @@ import java.util.concurrent.ConcurrentHashMap;
  * @time 2021/8/7 11:32
  * @copyright(C) 2021 song
  */
-public  class BaseSocket {
+public class BaseSocket {
 
     protected boolean running;
-    protected  static Gson gson = new Gson();
+    protected static Gson gson = new Gson();
     private static DataRes dataRes = new DataRes();
-    protected Map<Integer, DataPacket> msgList = new ConcurrentHashMap<>();
+
+    protected static ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(3, 5, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(500));
+
+
+
     protected File fileSaveDir;
 
-    protected  byte REQUEST_FLAG;
+    protected byte REQUEST_FLAG;
 
 
     public boolean isRunning() {
@@ -34,6 +38,7 @@ public  class BaseSocket {
 
     /**
      * 文件保存目录
+     *
      * @param fileSaveDir
      */
     public void setFileSaveDir(String fileSaveDir) {
@@ -43,8 +48,8 @@ public  class BaseSocket {
             if (!mkdir) {
                 throw new RuntimeException("创建文件目录失败");
             }
-            this.fileSaveDir = dir;
         }
+        this.fileSaveDir = dir;
     }
 
     public static DataRes getDataRes() {

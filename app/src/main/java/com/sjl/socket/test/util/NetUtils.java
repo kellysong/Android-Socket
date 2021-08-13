@@ -21,6 +21,8 @@ import android.net.NetworkInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 
+import com.sjl.socket.base.ConsoleUtils;
+
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
@@ -84,8 +86,8 @@ public class NetUtils {
     public static String getConnectWifiSsid(Context context) {
         WifiManager wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
         WifiInfo wifiInfo = wifiManager.getConnectionInfo();
-        Logger.i("wifiInfo：" + wifiInfo.toString());
-        Logger.i("SSID：" + wifiInfo.getSSID());
+        ConsoleUtils.i("wifiInfo：" + wifiInfo.toString());
+        ConsoleUtils.i("SSID：" + wifiInfo.getSSID());
         return wifiInfo.getSSID();
     }
 

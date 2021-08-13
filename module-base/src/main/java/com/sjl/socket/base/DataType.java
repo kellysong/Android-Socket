@@ -10,7 +10,7 @@ package com.sjl.socket.base;
  * @copyright(C) 2021 song
  */
 public enum DataType {
-    TEXT_ONLY((byte) 0x01), FILE_AND_TEXT((byte) 0x02),HEART((byte) 0x99);
+    TEXT_ONLY((byte) 0x01), FILE_AND_TEXT((byte) 0x02),HEARTBEAT((byte) 0x99);
     private final byte dataType;
 
     DataType(byte dataType) {

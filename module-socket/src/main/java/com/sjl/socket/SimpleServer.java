@@ -1,11 +1,13 @@
 package com.sjl.socket;
 
 
+import com.sjl.socket.base.ConsoleUtils;
 import com.sjl.socket.base.DataPacket;
 import com.sjl.socket.base.DataReq;
 import com.sjl.socket.base.DataRes;
 import com.sjl.socket.base.DataResponseListener;
 import com.sjl.socket.base.DataType;
+import com.sjl.socket.base.HeartbeatListener;
 import com.sjl.socket.util.FileUtils;
 
 import java.io.DataInputStream;
@@ -37,8 +39,16 @@ public class SimpleServer extends BaseSocket {
     private ServerSocket serverSocket = null;
     private Thread serverReceiverThread;
     private ServerListener serverListener;
-    protected Map<String, ServerClient> clientConnectionList = new ConcurrentHashMap<>();
+    /**
+     * 心跳监听
+     */
+    private HeartbeatListener heartbeatListener;
+    /**
+     * 客户端消息监听
+     */
+    private DataResponseListener dataResponseListener;
 
+    protected Map<String, ServerClient> clientConnectionList = new ConcurrentHashMap<>();
 
     public SimpleServer(int port) {
         this.port = port;
@@ -59,7 +69,7 @@ public class SimpleServer extends BaseSocket {
             String key = entry.getKey();
             ServerClient serverClient = entry.getValue();
             serverClient.disconnect();
-            System.out.println("断开-->" + key + "连接");
+            ConsoleUtils.i("断开-->" + key + "连接");
         }
         if (serverSocket != null && !serverSocket.isClosed()) {
             try {
@@ -86,20 +96,38 @@ public class SimpleServer extends BaseSocket {
     }
 
 
-    public boolean pushDataTpClient(String clientIp,DataReq dataReq) {
+    public boolean pushDataTpClient(String clientIp, DataReq dataReq) {
         SimpleServer.ServerClient clientConnectionList = getClientConnection(clientIp);
-        if(clientConnectionList != null){
+        if (clientConnectionList != null) {
             try {
                 clientConnectionList.sendData(dataReq);
                 return true;
             } catch (Exception e) {
-                e.printStackTrace();
-                System.out.println("推送-->" + clientIp + "失败：" + e.getMessage());
+                ConsoleUtils.e("推送-->" + clientIp + "失败", e);
             }
         }
         return false;
 
     }
+
+    /**
+     * 异步推送数据到指定客户端
+     *
+     * @param clientIp
+     * @param dataReq
+     * @param dataResponseListener
+     */
+    public void pushDataTpClient(String clientIp, DataReq dataReq, DataResponseListener dataResponseListener) {
+        SimpleServer.ServerClient clientConnectionList = getClientConnection(clientIp);
+        if (clientConnectionList != null) {
+            clientConnectionList.sendData(dataReq, dataResponseListener);
+        } else {
+            if (dataResponseListener != null) {
+                dataResponseListener.sendOnError(dataReq.getCmd(), new RuntimeException("客户端未连接，推送失败"));
+            }
+        }
+    }
+
     public void pushDataTpAllClient(DataReq dataReq) {
         Map<String, ServerClient> clientConnectionList = getClientConnectionList();
         for (Map.Entry<String, ServerClient> entry : clientConnectionList.entrySet()) {
@@ -109,8 +137,7 @@ public class SimpleServer extends BaseSocket {
                 try {
                     serverClient.sendData(dataReq);
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    System.out.println("推送-->" + key + "失败：" + e.getMessage());
+                    ConsoleUtils.e("推送-->" + key + "失败", e);
                 }
             }
 
@@ -134,7 +161,7 @@ public class SimpleServer extends BaseSocket {
         public void run() {
             try {
                 serverSocket = new ServerSocket(port);
-                System.out.println("Server is running");
+                ConsoleUtils.i("Server is running");
                 running = true;
                 if (serverListener != null) {
                     serverListener.onStarted();
@@ -142,18 +169,16 @@ public class SimpleServer extends BaseSocket {
                 while (true) {
                     if (!serverSocket.isClosed()) {
                         Socket socket = serverSocket.accept();
-                        System.out.println("client is connected");
+                        ConsoleUtils.i("client is connected");
                         InetAddress inetAddress = socket.getInetAddress();
                         String ip = inetAddress.getHostAddress();
-                        //inet address: /127.0.0.1
-                        System.out.println("inet address: " + inetAddress.toString());
-                        ip = ip.substring(1);
-
+                        //inet address: 127.0.0.1
+                        ConsoleUtils.i("inet address: " + inetAddress.toString());
                         ServerClient oldServerClient = getClientConnection(ip);
                         if (oldServerClient != null && oldServerClient.isConnected()) {
                             oldServerClient.disconnect();
                         }
-                        ServerClient serverClient = new ServerClient(socket);
+                        ServerClient serverClient = new ServerClient(socket, ip);
                         Thread clientThread = new Thread(serverClient);
                         clientThread.start();
                         //同一个客户端ip,只保留一个最新的长连接
@@ -163,7 +188,7 @@ public class SimpleServer extends BaseSocket {
 
                 }
             } catch (Exception e) {
-                System.out.println("服务端监听异常:" + e.getMessage());
+                ConsoleUtils.e("服务端监听异常", e);
                 running = false;
                 if (serverListener != null) {
                     serverListener.onException(e);
@@ -177,11 +202,18 @@ public class SimpleServer extends BaseSocket {
      */
     public class ServerClient implements Runnable {
         private Socket socket;
+        private String ip;
         private DataOutputStream out;
         private Object obj = new Object();
+        private Map<Integer, DataPacket> mDataPacketList = new ConcurrentHashMap<>();
+        /**
+         * 数据回调
+         */
+        private Map<Integer, DataResponseListener> mDataCallbacks = new ConcurrentHashMap<>();
 
-        public ServerClient(Socket socket) {
+        public ServerClient(Socket socket, String ip) {
             this.socket = socket;
+            this.ip = ip;
         }
 
         @Override
@@ -191,7 +223,7 @@ public class SimpleServer extends BaseSocket {
                 out = new DataOutputStream(os);
                 parseDataPacket(socket);
             } catch (Exception e) {
-                System.out.println("客服端连接服务端中断:" + e.getMessage());
+                ConsoleUtils.e("客服端连接服务端中断", e);
             } finally {
                 disconnect();
             }
@@ -202,7 +234,7 @@ public class SimpleServer extends BaseSocket {
                 try {
                     socket.close();
                 } catch (IOException e) {
-                    e.printStackTrace();
+//                    e.printStackTrace();
                 }
             }
         }
@@ -214,62 +246,70 @@ public class SimpleServer extends BaseSocket {
             return false;
         }
 
-        public void sendData(DataReq dataReq) throws Exception {
+        /**
+         * @param dataReq
+         * @return 返回报文的序列号
+         * @throws Exception
+         */
+        public int sendData(DataReq dataReq) throws Exception {
             if (dataReq == null) {
                 throw new NullPointerException("dataReq为空");
             }
             synchronized (obj) {
                 DataType dataType = dataReq.geDataType();
                 if (out == null) {
-                    System.out.println("客户端未连接");
-                    return;
+                    ConsoleUtils.e("客户端未连接");
+                    return 0;
                 }
                 if (dataType == DataType.TEXT_ONLY) {
-                    sendTextData(out, dataType.getDataType(), dataReq);
+                    return sendTextData(out, dataType.getDataType(), dataReq);
                 } else if (dataType == DataType.FILE_AND_TEXT) {
-                    sendTextAndFileData(out, dataType.getDataType(), dataReq);
-                } else if (dataType == DataType.HEART) {
-                    sendHeartData(out, DataType.HEART.getDataType(), dataReq);
+                    return sendTextAndFileData(out, dataType.getDataType(), dataReq);
+                } else if (dataType == DataType.HEARTBEAT) {
+                    return sendHeartData(out, DataType.HEARTBEAT.getDataType(), dataReq);
                 } else {
-                    System.out.println("不支持命令：" + dataType);
+                    ConsoleUtils.e("不支持命令：" + dataType);
                     throw new IllegalArgumentException("非法数据包发送");
                 }
             }
 
         }
 
-        private void sendHeartData(DataOutputStream out, byte dataType, DataReq dataReq) throws Exception {
-            DataPacket dataPacket = new DataPacket(dataType, REQUEST_FLAG, dataReq.getCmd());
+        private int sendHeartData(DataOutputStream out, byte dataType, DataReq dataReq) throws Exception {
+            DataPacket dataPacket = new DataPacket(dataType, REQUEST_FLAG, dataReq.getCmd(), dataReq.getSeq());
             dataPacket.sendHeart(out);
             cacheMsg(dataPacket);
+            return dataPacket.seq;
         }
 
         private void cacheMsg(DataPacket dataPacket) {
-            msgList.put(dataPacket.seq, dataPacket);
+            mDataPacketList.put(dataPacket.seq, dataPacket);
         }
 
-        private void sendTextData(DataOutputStream out, byte dataType, DataReq dataReq) throws Exception {
+        private int sendTextData(DataOutputStream out, byte dataType, DataReq dataReq) throws Exception {
             String text = gson.toJson(dataReq.data);
-            System.out.println("发送文本：" + text);
+            ConsoleUtils.i("发送文本：" + text);
             byte[] dataByte = text.getBytes(DataPacket.ENCODE);
-            DataPacket dataPacket = new DataPacket(dataType, REQUEST_FLAG, dataReq.getCmd(), dataByte.length, dataByte);
+            DataPacket dataPacket = new DataPacket(dataType, REQUEST_FLAG, dataReq.getCmd(), dataReq.getSeq(), dataByte);
             dataPacket.writeText(out);
             cacheMsg(dataPacket);
+            return dataPacket.seq;
         }
 
 
-        private void sendTextAndFileData(DataOutputStream out, byte dataType, DataReq dataReq) throws Exception {
+        private int sendTextAndFileData(DataOutputStream out, byte dataType, DataReq dataReq) throws Exception {
             File file = dataReq.file;
             if (file.isFile()) {
-                long fileLength = file.length();
                 String text = gson.toJson(dataReq.data);
-                System.out.println("发送文本：" + text);
+                ConsoleUtils.i("发送文本：" + text);
                 byte[] dataByte = text.getBytes(DataPacket.ENCODE);
-                DataPacket dataPacket = new DataPacket(dataType, REQUEST_FLAG, dataReq.getCmd(), dataByte.length, dataByte, fileLength, file);
+                byte[] fileNameData = dataReq.fileName.getBytes(DataPacket.ENCODE);
+                DataPacket dataPacket = new DataPacket(dataType, REQUEST_FLAG, dataReq.getCmd(), dataReq.getSeq(), dataByte, fileNameData, file);
                 dataPacket.writeTextAndFile(out);
                 cacheMsg(dataPacket);
+                return dataPacket.seq;
             } else {
-                System.out.println("不是文件，发送失败：" + dataReq.toString());
+                throw new IllegalArgumentException("不存在该文件或不是文件，发送失败：" + dataReq.toString());
             }
         }
 
@@ -296,23 +336,23 @@ public class SimpleServer extends BaseSocket {
                         case TEXT_ONLY: {
                             //解析文本
                             responsePacket.readText(type, inputStream);
-                            System.out.println("====文本end");
+                            ConsoleUtils.i("====文本end");
                             handleResponse(responsePacket);
                             break;
                         }
                         case FILE_AND_TEXT: {
                             //解析文本
                             responsePacket.readTextAndFile(type, inputStream, fileSaveDir);
-                            System.out.println("文件大小:" + responsePacket.fileLength + ",格式化大小:" + FileUtils.formatFileSize(responsePacket.fileLength)
+                            ConsoleUtils.i("文件大小:" + responsePacket.fileLength + ",格式化大小:" + FileUtils.formatFileSize(responsePacket.fileLength)
                                     + ",文件写入成功:" + responsePacket.file.getName());
-                            System.out.println("====文本和文件end");
+                            ConsoleUtils.i("====文本和文件end");
 
                             handleResponse(responsePacket);
                             break;
                         }
-                        case HEART: {
+                        case HEARTBEAT: {
                             responsePacket.readHeart(type, inputStream);
-                            System.out.println("====收到客服端心跳end");
+                            ConsoleUtils.i("====收到客服端心跳end");
                             handleResponse(responsePacket);
                             break;
                         }
@@ -320,7 +360,7 @@ public class SimpleServer extends BaseSocket {
                             break;
                     }
                 } else {
-                    System.out.println("客服端非法消息type：" + type);
+                    ConsoleUtils.e("客服端非法消息type：" + type);
                 }
 
             }
@@ -333,18 +373,13 @@ public class SimpleServer extends BaseSocket {
             byte end = responsePacket.end;
             if (end == DataPacket.End) {
                 if (flag == REQUEST_FLAG) { //C<-S
-                    DataPacket requestPacket = msgList.get(seq);
-                    if (requestPacket != null) {
-                        callbackResult(requestPacket, responsePacket);
-                        msgList.remove(seq);
-                    }
+                    DataPacket requestPacket = mDataPacketList.get(seq);
+                    callbackServerRequestResult(requestPacket, responsePacket);
                 } else {
                     //C->S
                     final DataPacket requestPacket = responsePacket;
                     DataPacket replyResponsePacket = replyData(requestPacket, DataRes.SUCCESS, "Success");
-                    if (replyResponsePacket != null) {
-                        callbackResult(requestPacket, replyResponsePacket);
-                    }
+                    callbackClientRequestResult(requestPacket, replyResponsePacket);
                 }
             } else {
                 replyData(responsePacket, DataRes.FAIL, "Fail");
@@ -366,47 +401,130 @@ public class SimpleServer extends BaseSocket {
                     dataRes.code = code;
                     dataRes.msg = msg;
                     String text = gson.toJson(dataRes);
-                    System.out.println("应答文本：" + text);
                     byte[] dataByte = text.getBytes(DataPacket.ENCODE);
                     byte dataType = requestDataPacket.dataType;
-                    if (requestDataPacket.dataType != DataType.HEART.getDataType()) {
+                    if (requestDataPacket.dataType != DataType.HEARTBEAT.getDataType()) {
                         dataType = DataType.TEXT_ONLY.getDataType();
                     }
-                    DataPacket dataPacket = new DataPacket(dataType, requestDataPacket.flag, requestDataPacket.cmd, dataByte.length, dataByte, requestDataPacket.seq);
-                    dataPacket.writeText(out);
-                    return dataPacket;
+                    DataPacket responsePacket = new DataPacket(dataType, requestDataPacket.flag, requestDataPacket.cmd, requestDataPacket.seq, dataByte);
+                    responsePacket.writeText(out);
+                    return responsePacket;
                 }
             } catch (Exception e) {
-                System.out.println("应答异常:" + e.getMessage());
+                ConsoleUtils.e("应答异常", e);
             }
 
             return null;
         }
 
 
-        private void callbackResult(DataPacket requestPacket, DataPacket responsePacket) {
-            if (dataResponseListener == null) {
-                return;
-            }
+        /**
+         * 来自服务端的请求信息（没有心跳信息）
+         *
+         * @param requestPacket
+         * @param responsePacket
+         */
+        private void callbackServerRequestResult(DataPacket requestPacket, DataPacket responsePacket) {
+            int seq = 0;
             try {
-                if (responsePacket.dataType == DataType.HEART.getDataType()) {
-                    dataResponseListener.heartBeatPacket(responsePacket);
-                } else {
-                    dataResponseListener.dataPacket(requestPacket.cmd, requestPacket, responsePacket);
+
+                if (requestPacket != null) {
+                    seq = requestPacket.seq;
+                    DataResponseListener dataResponseListener = mDataCallbacks.get(seq);
+                    if (dataResponseListener != null) {
+                        dataResponseListener.sendOnSuccess(requestPacket.cmd, requestPacket, responsePacket);
+                    }
                 }
+
             } catch (Exception e) {
-                e.printStackTrace();
+                //异常处理
+                if (requestPacket != null) {
+                    seq = requestPacket.seq;
+                    DataResponseListener dataResponseListener = mDataCallbacks.get(seq);
+                    if (dataResponseListener != null) {
+                        dataResponseListener.sendOnError(requestPacket.cmd, e);
+                    }
+                }
+            } finally {
+                mDataPacketList.remove(seq);
+                mDataCallbacks.remove(seq);
+            }
+        }
+
+        /**
+         * 来自客户端端的请求信息
+         *
+         * @param requestPacket
+         * @param responsePacket
+         */
+        private void callbackClientRequestResult(DataPacket requestPacket, DataPacket responsePacket) {
+
+            if (responsePacket != null) {
+                if (responsePacket.dataType == DataType.HEARTBEAT.getDataType()) {//心跳
+                    if (heartbeatListener == null) {
+                        return;
+                    }
+                    heartbeatListener.heartBeatPacket(requestPacket, responsePacket, ip);
+                } else if (dataResponseListener != null) {//数据
+                    dataResponseListener.sendOnSuccess(requestPacket.cmd, requestPacket, responsePacket);
+                }
             }
 
         }
+
+        /**
+         * 异步发送数据
+         *
+         * @param dataReq
+         * @param dataResponseListener
+         */
+        public void sendData(DataReq dataReq, DataResponseListener dataResponseListener) {
+            if (dataResponseListener == null) {
+                return;
+            }
+
+            threadPoolExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        int seq = sendData(dataReq);
+                        mDataCallbacks.put(seq, dataResponseListener);
+
+                        int readWaitTimeout = 10 * 1000;
+                        long start = System.currentTimeMillis();
+                        boolean success = false;
+                        while (System.currentTimeMillis() - start <= readWaitTimeout) {
+                            DataPacket dataPacket = mDataPacketList.get(seq);
+                            if (dataPacket == null) {
+                                //说明被移除成功，证明接收成功
+                                success = true;
+                                break;
+                            }
+                        }
+                        if (!success) {
+                            mDataPacketList.remove(seq);
+                            mDataCallbacks.remove(seq);
+                            dataResponseListener.sendOnError(dataReq.getCmd(), new RuntimeException("超时读取数据"));
+                        }
+                    } catch (Exception e) {
+                        dataResponseListener.sendOnError(dataReq.getCmd(), e);
+                    }
+
+                }
+            });
+        }
     }
 
-
-    private DataResponseListener dataResponseListener;
 
     public void subscribeDataResponseListener(DataResponseListener dataResponseListener) {
         this.dataResponseListener = dataResponseListener;
     }
 
+    public void unsubscribeDataResponseListener() {
+        this.dataResponseListener = null;
+    }
 
+    public void setHeartbeatListener(HeartbeatListener heartbeatListener) {
+        this.heartbeatListener = heartbeatListener;
+    }
 }

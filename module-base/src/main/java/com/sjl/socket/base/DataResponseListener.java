@@ -11,7 +11,19 @@ package com.sjl.socket.base;
  */
 public interface DataResponseListener {
 
-    void heartBeatPacket(DataPacket dataPacket);
+    /**
+     * 发送成功
+     * @param cmd
+     * @param requestPacket
+     * @param responsePacket
+     */
+    void sendOnSuccess(int cmd, DataPacket requestPacket, DataPacket responsePacket);
 
-    void dataPacket(int cmd, DataPacket requestPacket, DataPacket responsePacket);
+    /**
+     * 发送失败
+     * @param cmd
+     * @param t
+     */
+    void sendOnError(int cmd, Throwable t);
+
 }
