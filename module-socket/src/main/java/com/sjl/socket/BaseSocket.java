@@ -44,9 +44,9 @@ public class BaseSocket {
     public void setFileSaveDir(String fileSaveDir) {
         File dir = new File(fileSaveDir);
         if (!dir.exists()) {
-            boolean mkdir = dir.mkdir();
+            boolean mkdir = dir.mkdirs();
             if (!mkdir) {
-                throw new RuntimeException("创建文件目录失败");
+                throw new RuntimeException("创建文件保存目录失败");
             }
         }
         this.fileSaveDir = dir;

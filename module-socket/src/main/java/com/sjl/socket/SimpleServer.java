@@ -88,6 +88,9 @@ public class SimpleServer extends BaseSocket {
     }
 
     private ServerClient getClientConnection(String clientIp) {
+        if (clientIp == null || clientIp.isEmpty()){
+            throw new NullPointerException("clientIp 为空");
+        }
         return clientConnectionList.get(clientIp);
     }
 

@@ -199,7 +199,7 @@ public class SimpleServerTest {
             }
         });
         //服务端保存目录
-        File dir = new File(SimpleClientTest.getApkDir(), "apk" + File.separator + "download");
+        File dir = new File(SimpleClientTest.getApkDir(), "apk" + File.separator + "serverDownload");
         simpleServer.setFileSaveDir(dir.getAbsolutePath());
         //订阅客户端的请求信息
         simpleServer.subscribeDataResponseListener(new DataResponseListener() {

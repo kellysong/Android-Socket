@@ -8,7 +8,7 @@ import com.sjl.socket.base.DataReq;
 import com.sjl.socket.base.DataResponseListener;
 import com.sjl.socket.business.FileInfo;
 import com.sjl.socket.business.FileReq;
-import com.sjl.socket.util.FileUtils;
+import com.sjl.socket.business.TextReq;
 
 import org.junit.Test;
 
@@ -50,13 +50,17 @@ public class SimpleClientTest {
         File dir = getApkDir();
         ConsoleUtils.i(dir.getAbsolutePath());
         File file = new File(dir, "apk" + File.separator + "test.apk");
+        if (!file.getParentFile().exists()) {
+            file.getParentFile().mkdirs();
+        }
         ConsoleUtils.i(file.getAbsolutePath() + ":" + file.exists());
     }
 
     public static void connect(int way) {
         File dir = getApkDir();
         File file = new File(dir, "apk" + File.separator + "test.apk");
-        if (file.isFile()) {
+        DataReq dataReq;
+        if (file.isFile()) { //只是方便测试
             FileInfo fileInfo = new FileInfo();
             fileInfo.msg = "纯文本信息";
             //发送文件
@@ -64,12 +68,15 @@ public class SimpleClientTest {
             DataReq dataReq = new TextReq(fileInfo);*/
             //发送文件
             fileInfo.msg = "文本和文件信息";
-            DataReq dataReq = new FileReq(fileInfo, file, "my_test.apk");
-            //需要发送多台设备,拷贝多次connectWay
-            connectWay(way, dataReq);
-
-
+            dataReq = new FileReq(fileInfo, file, "my_test.apk");
+        } else {
+            ConsoleUtils.w("文件不存在，发送文本");
+            FileInfo fileInfo = new FileInfo();
+            fileInfo.msg = "纯文本信息";
+            dataReq = new TextReq(fileInfo);
         }
+        //需要发送多台设备,拷贝多次connectWay
+        connectWay(way, dataReq);
     }
 
     private static void connectWay(int way, DataReq dataReq) {
@@ -126,7 +133,10 @@ public class SimpleClientTest {
                 ConsoleUtils.i("心跳响应：" + source);
             }
         });*/
-        apkClient.setFileSaveDir(FileUtils.currentWorkDir + "apk");
+        File dir = new File(SimpleClientTest.getApkDir(), "apk" + File.separator + "clientDownload");
+
+        apkClient.setFileSaveDir(dir.getAbsolutePath());
+
         //订阅服务端的请求信息
         apkClient.subscribeDataResponseListener(new DataResponseListener() {
             @Override
